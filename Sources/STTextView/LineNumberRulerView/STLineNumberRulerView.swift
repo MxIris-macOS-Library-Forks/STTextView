@@ -273,7 +273,7 @@ open class STLineNumberRulerView: NSRulerView {
             self.ruleThickness = calculatedThickness
             if let scrollView = scrollView {
                 let clipView = scrollView.contentView
-                scrollView.contentView.bounds.origin.x = -(clipView.contentInsets.left + clipView.contentInsets.right)
+                clipView.bounds.origin.x = -(clipView.contentInsets.left + clipView.contentInsets.right)
 
                 invalidateMarkersRect()
             }
@@ -334,7 +334,7 @@ open class STLineNumberRulerView: NSRulerView {
                 width: bounds.width,
                 height: line.layoutFragmentFrame.height
             )
-        )
+        ).pixelAligned
         context.fill(fillRect)
         context.restoreGState()
     }

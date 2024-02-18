@@ -32,9 +32,6 @@ import AVFoundation
     /// Sent when the selection range of characters changes.
     public static let didChangeSelectionNotification = NSTextView.didChangeSelectionNotification
 
-    /// Returns the type of layer used by the receiver.
-    open var insertionPointViewClass = STInsertionPointView.self
-
     /// Installed plugins. events value is available after plugin is setup
     internal var plugins: [(plugin: any STPlugin, events: STPluginEvents?)] = []
 
@@ -93,10 +90,10 @@ import AVFoundation
     @objc dynamic open var font: NSFont? {
         get {
             // if not empty, return a font at location 0
-            if !textContentManager.documentRange.isEmpty {
-                let location = textContentManager.documentRange.location
-                let endLocation = textContentManager.location(location, offsetBy: 1)
-                return textContentManager.attributedString(in: NSTextRange(location: location, end: endLocation))?.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+            if !textLayoutManager.documentRange.isEmpty {
+                let location = textLayoutManager.documentRange.location
+                let endLocation = textLayoutManager.location(location, offsetBy: 1)
+                return textLayoutManager.textContentManager?.attributedString(in: NSTextRange(location: location, end: endLocation))?.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
             }
 
             // otherwise return current typing attribute
@@ -109,8 +106,8 @@ import AVFoundation
                 return
             }
 
-            if !textContentManager.documentRange.isEmpty {
-                addAttributes([.font: newValue], range: textContentManager.documentRange)
+            if !textLayoutManager.documentRange.isEmpty {
+                addAttributes([.font: newValue], range: textLayoutManager.documentRange)
             }
 
             typingAttributes[.font] = newValue
@@ -141,40 +138,28 @@ import AVFoundation
         }
     }
 
-    /// Deprecated. The text view’s default paragraph style.
-    @available(*, deprecated, message: "Use typingAttributes[.paragraphStyle] instead")
-    @objc dynamic public var defaultParagraphStyle: NSParagraphStyle? {
-        get {
-            typingAttributes[.paragraphStyle] as? NSParagraphStyle
-        }
-
-        set {
-            typingAttributes[.paragraphStyle] = newValue
+    /// The receiver’s default paragraph style.
+    @NSCopying @objc dynamic public var defaultParagraphStyle: NSParagraphStyle? {
+        didSet {
+            typingAttributes[.paragraphStyle] = defaultParagraphStyle ?? .default
         }
     }
 
-    private static let defaultTypingAttributes: [NSAttributedString.Key: Any] = [
-        .paragraphStyle: NSParagraphStyle.default,
-        .font: NSFont.userFont(ofSize: 0) ?? .preferredFont(forTextStyle: .body),
-        .foregroundColor: NSColor.textColor
-    ]
+    private var defaultTypingAttributes: [NSAttributedString.Key: Any] {
+        [
+            .paragraphStyle: self.defaultParagraphStyle ?? NSParagraphStyle.default,
+            .font: NSFont.userFont(ofSize: 0) ?? .preferredFont(forTextStyle: .body),
+            .foregroundColor: NSColor.textColor
+        ]
+    }
 
-    /// The text view's typing attributes
+    /// The attributes to apply to new text that the user enters.
     ///
-    /// Typing attributes are reset automatically whenever the selection changes. However, if you add any user actions that change text attributes, the action should use this method to apply those attributes afterwards. User actions that change attributes should always set the typing attributes because there might not be a subsequent change in selection before the next typing.
+    /// This dictionary contains the attribute keys (and corresponding values) to apply to newly typed text.
+    /// When the text view’s selection changes, the contents of the dictionary are reset automatically.
     @objc dynamic public var typingAttributes: [NSAttributedString.Key: Any] {
         didSet {
-            // make sure to keep the main attributes set.
-            if typingAttributes.isEmpty {
-                typingAttributes = Self.defaultTypingAttributes
-            } else {
-                for key in Self.defaultTypingAttributes.keys {
-                    if typingAttributes[key] == nil {
-                        typingAttributes[key] = Self.defaultTypingAttributes[key]
-                    }
-                }
-            }
-
+            typingAttributes.merge(defaultTypingAttributes) { (current, _) in current }
             needsLayout = true
             needsDisplay = true
         }
@@ -194,15 +179,15 @@ import AVFoundation
     }
 
     internal func typingAttributes(at startLocation: NSTextLocation) -> [NSAttributedString.Key : Any] {
-        guard !textContentManager.documentRange.isEmpty else {
+        guard !textLayoutManager.documentRange.isEmpty else {
             return typingAttributes
         }
 
         var attrs: [NSAttributedString.Key: Any] = [:]
         // The attribute is derived from the previous (upstream) location,
         // except for the beginning of the document where it from whatever is at location 0
-        let options: NSTextContentManager.EnumerationOptions = startLocation == textContentManager.documentRange.location ? [] : [.reverse]
-        let offsetDiff = startLocation == textContentManager.documentRange.location ? 0 : -1
+        let options: NSTextContentManager.EnumerationOptions = startLocation == textLayoutManager.documentRange.location ? [] : [.reverse]
+        let offsetDiff = startLocation == textLayoutManager.documentRange.location ? 0 : -1
 
         textContentManager.enumerateTextElements(from: startLocation, options: options) { textElement in
             if let textParagraph = textElement as? NSTextParagraph,
@@ -218,19 +203,14 @@ import AVFoundation
         }
 
         // fill in with missing typing attributes if needed
-        for key in Self.defaultTypingAttributes.keys {
-            if attrs[key] == nil {
-                attrs[key] = Self.defaultTypingAttributes[key]
-            }
-        }
-
+        attrs.merge(defaultTypingAttributes, uniquingKeysWith: { current, _ in current})
         return attrs
     }
 
     // line height based on current typing font and current typing paragraph
     internal var typingLineHeight: CGFloat {
-        let font = typingAttributes[.font] as? NSFont ?? Self.defaultTypingAttributes[.font] as! NSFont
-        let paragraphStyle = typingAttributes[.paragraphStyle] as? NSParagraphStyle ?? Self.defaultTypingAttributes[.paragraphStyle] as! NSParagraphStyle
+        let font = typingAttributes[.font] as? NSFont ?? self.defaultTypingAttributes[.font] as! NSFont
+        let paragraphStyle = typingAttributes[.paragraphStyle] as? NSParagraphStyle ?? self.defaultTypingAttributes[.paragraphStyle] as! NSParagraphStyle
         let lineHeightMultiple = paragraphStyle.lineHeightMultiple.isAlmostZero() ? 1.0 : paragraphStyle.lineHeightMultiple
         return calculateDefaultLineHeight(for: font) * lineHeightMultiple
     }
@@ -255,6 +235,7 @@ import AVFoundation
         }
     }
 
+    /// Replaces the receiver’s entire contents with the characters and attributes of the given attributed string.
     @objc public func setAttributedString(_ attributedString: NSAttributedString) {
         setString(attributedString)
     }
@@ -266,13 +247,14 @@ import AVFoundation
     /// - Note: If you set both `widthTracksTextView` and `isHorizontallyResizable` up to resize automatically in the same dimension, your application can get trapped in an infinite loop.
     ///
     /// - SeeAlso: [Tracking the Size of a Text View](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/TextStorageLayer/Tasks/TrackingSize.html#//apple_ref/doc/uid/20000927-CJBBIAAF)
-    @objc dynamic public var widthTracksTextView: Bool {
+    @objc public var widthTracksTextView: Bool {
         set {
             if textContainer.widthTracksTextView != newValue {
                 textContainer.widthTracksTextView = newValue
-
-                updateTextContainerSizeIfNeeded()
-
+                textContainer.containerSize = NSTextContainer().containerSize
+                if let clipView = scrollView?.contentView as? NSClipView {
+                    frame.size.width = clipView.bounds.size.width - clipView.contentInsets.horizontalInsets
+                }
                 needsLayout = true
                 needsDisplay = true
             }
@@ -283,6 +265,17 @@ import AVFoundation
         }
     }
 
+    /// A Boolean that controls whether the receiver changes its width to fit the width of its text.
+    @objc public var isHorizontallyResizable: Bool {
+        set {
+            widthTracksTextView = newValue
+        }
+
+        get {
+            widthTracksTextView
+        }
+    }
+
     /// A Boolean that controls whether the text container adjusts the height of its bounding rectangle when its text view resizes.
     ///
     /// When the value of this property is `true`, the text container adjusts its height when the height of its text view changes. The default value of this property is `false`.
@@ -290,12 +283,15 @@ import AVFoundation
     /// - Note: If you set both `heightTracksTextView` and `isVerticallyResizable` up to resize automatically in the same dimension, your application can get trapped in an infinite loop.
     ///
     /// - SeeAlso: [Tracking the Size of a Text View](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/TextStorageLayer/Tasks/TrackingSize.html#//apple_ref/doc/uid/20000927-CJBBIAAF)
-    @objc dynamic public var heightTracksTextView: Bool {
+    @objc public var heightTracksTextView: Bool {
         set {
             if textContainer.heightTracksTextView != newValue {
                 textContainer.heightTracksTextView = newValue
 
-                updateTextContainerSizeIfNeeded()
+                textContainer.containerSize = NSTextContainer().containerSize
+                if let clipView = scrollView?.contentView as? NSClipView {
+                    frame.size.height = clipView.bounds.size.height - clipView.contentInsets.verticalInsets
+                }
 
                 needsLayout = true
                 needsDisplay = true
@@ -308,26 +304,15 @@ import AVFoundation
     }
 
     /// A Boolean that controls whether the receiver changes its height to fit the height of its text.
-    ///
-    /// If flag is `true` it does; if flag is `false` it doesn’t. The default value of this property is `true`.
-    ///
-    /// - Note: If you set both `heightTracksTextView` and `isVerticallyResizable` up to resize automatically in the same dimension, your application can get trapped in an infinite loop.
-    ///
-    /// - SeeAlso: [Tracking the Size of a Text View](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/TextStorageLayer/Tasks/TrackingSize.html#//apple_ref/doc/uid/20000927-CJBBIAAF)
-    ///
-    //@Invalidating(.textContainer)
-    //@objc dynamic public private(set) var isVerticallyResizable: Bool = true
+    @objc public var isVerticallyResizable: Bool {
+        set {
+            heightTracksTextView = newValue
+        }
 
-    /// A Boolean that controls whether the receiver changes its width to fit the width of its text.
-    ///
-    /// If flag is `true` it does; if flag is `false` it doesn’t. The default value of this property is `true`.
-    ///
-    /// - Note: If you set both `widthTracksTextView` and `isHorizontallyResizable` up to resize automatically in the same dimension, your application can get trapped in an infinite loop.
-    ///
-    /// - SeeAlso: [Tracking the Size of a Text View](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/TextStorageLayer/Tasks/TrackingSize.html#//apple_ref/doc/uid/20000927-CJBBIAAF)
-    ///
-    //@Invalidating(.textContainer)
-    //@objc dynamic public private(set) var isHorizontallyResizable: Bool = true
+        get {
+            heightTracksTextView
+        }
+    }
 
     /// A Boolean that controls whether the text view highlights the currently selected line.
     @Invalidating(.display)
@@ -351,8 +336,10 @@ import AVFoundation
         }
     }
 
+    /// A Boolean value that indicates whether the receiver allows its background color to change.
     @objc open dynamic var allowsDocumentBackgroundColorChange: Bool = true
 
+    /// An action method used to set the background color.
     @objc open func changeDocumentBackgroundColor(_ sender: Any?) {
         guard allowsDocumentBackgroundColorChange, let color = sender as? NSColor else {
             return
@@ -361,6 +348,7 @@ import AVFoundation
         backgroundColor = color
     }
 
+    /// The semantic meaning for a text input area.
     open var contentType: NSTextContentType?
 
     /// A Boolean value that indicates whether the receiver allows undo.
@@ -390,7 +378,7 @@ import AVFoundation
     /// The attributes used to draw marked text.
     ///
     /// Text color, background color, and underline are the only supported attributes for marked text.
-    public var markedTextAttributes: [NSAttributedString.Key : Any] = [.underlineStyle: NSUnderlineStyle.single.rawValue]
+    @objc open var markedTextAttributes: [NSAttributedString.Key : Any] = [.underlineStyle: NSUnderlineStyle.single.rawValue]
 
     /// A flag
     internal var processingKeyEvent: Bool = false
@@ -410,7 +398,7 @@ import AVFoundation
     internal let delegateProxy = STTextViewDelegateProxy(source: nil)
 
     /// The manager that lays out text for the text view's text container.
-    public let textLayoutManager: NSTextLayoutManager
+    @objc open private(set) var textLayoutManager: NSTextLayoutManager
 
     @available(*, deprecated, renamed: "textContentManager")
     open var textContentStorage: NSTextContentStorage {
@@ -418,7 +406,7 @@ import AVFoundation
     }
 
     /// The text view's text storage object.
-    public let textContentManager: NSTextContentManager
+    @objc open private(set) var textContentManager: NSTextContentManager
 
     /// The text view's text container
     public var textContainer: NSTextContainer {
@@ -445,7 +433,7 @@ import AVFoundation
     }()
 
     /// Search-and-replace find interface inside a view.
-    public let textFinder: NSTextFinder
+    open private(set) var textFinder: NSTextFinder
 
     /// NSTextFinderClient
     internal let textFinderClient: STTextFinderClient
@@ -525,10 +513,6 @@ import AVFoundation
         let scrollView = NSScrollView(frame: frame)
         let textView = Self()
 
-        let textContainer = textView.textContainer
-        textContainer.widthTracksTextView = true
-        textContainer.heightTracksTextView = false
-
         scrollView.wantsLayer = true
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
@@ -538,12 +522,10 @@ import AVFoundation
     }
 
     internal var scrollView: NSScrollView? {
-        guard let result = enclosingScrollView else { return nil }
-        if result.documentView == self {
-            return result
-        } else {
+        guard let result = enclosingScrollView, result.documentView == self else {
             return nil
         }
+        return result
     }
 
     /// A dragging selection anchor
@@ -582,6 +564,8 @@ import AVFoundation
         textContentManager = STTextContentStorage()
         textLayoutManager = STTextLayoutManager()
         textLayoutManager.textContainer = STTextContainer()
+        textLayoutManager.textContainer?.widthTracksTextView = false
+        textLayoutManager.textContainer?.heightTracksTextView = true
         textContentManager.addTextLayoutManager(textLayoutManager)
         textContentManager.primaryTextLayoutManager = textLayoutManager
 
@@ -592,12 +576,13 @@ import AVFoundation
         decorationView = DecorationView(textLayoutManager: textLayoutManager)
         decorationView.autoresizingMask = [.height, .width]
 
-        typingAttributes = Self.defaultTypingAttributes
         allowsUndo = true
         _undoManager = CoalescingUndoManager()
 
         textFinder = NSTextFinder()
         textFinderClient = STTextFinderClient()
+
+        typingAttributes = [:]
 
         super.init(frame: frameRect)
 
@@ -606,7 +591,7 @@ import AVFoundation
         textCheckingController = NSTextCheckingController(client: self)
 
         // Set insert point at the very beginning
-        setSelectedTextRange(NSTextRange(location: textContentManager.documentRange.location))
+        setSelectedTextRange(NSTextRange(location: textLayoutManager.documentRange.location))
 
         postsBoundsChangedNotifications = true
         postsFrameChangedNotifications = true
@@ -812,10 +797,10 @@ import AVFoundation
             context.restoreGState()
         }
 
-        if textContentManager.documentRange.isEmpty {
+        if textLayoutManager.documentRange.isEmpty {
             // - empty document has no layout fragments, nothing, it's empt and has to be handled explicitly.
             // - there's no layout fragment at the document endLocation (technically it's out of bounds), has to be handled explicitly.
-            if let selectionFrame = textLayoutManager.textSegmentFrame(at: textContentManager.documentRange.location, type: .standard) {
+            if let selectionFrame = textLayoutManager.textSegmentFrame(at: textLayoutManager.documentRange.location, type: .standard) {
                 drawHighlight(
                     in: CGRect(
                         origin: CGPoint(
@@ -888,7 +873,7 @@ import AVFoundation
         }
 
         if let combinedFragmentsRect {
-            drawHighlight(in: combinedFragmentsRect)
+            drawHighlight(in: combinedFragmentsRect.pixelAligned)
         }
     }
 
@@ -901,15 +886,15 @@ import AVFoundation
         if case .some(let string) = string {
             switch string {
             case let attributedString as NSAttributedString:
-                replaceCharacters(in: textContentManager.documentRange, with: attributedString, allowsTypingCoalescing: false)
+                replaceCharacters(in: textLayoutManager.documentRange, with: attributedString, allowsTypingCoalescing: false)
             case let string as String:
-                replaceCharacters(in: textContentManager.documentRange, with: string, useTypingAttributes: true, allowsTypingCoalescing: false)
+                replaceCharacters(in: textLayoutManager.documentRange, with: string, useTypingAttributes: true, allowsTypingCoalescing: false)
             default:
                 assertionFailure()
                 return
             }
         } else if case .none = string {
-            replaceCharacters(in: textContentManager.documentRange, with: "", useTypingAttributes: true, allowsTypingCoalescing: false)
+            replaceCharacters(in: textLayoutManager.documentRange, with: "", useTypingAttributes: true, allowsTypingCoalescing: false)
         }
     }
 
@@ -1020,50 +1005,31 @@ import AVFoundation
         }
     }
 
-    // Update text view frame size
-    // Receiver changes its height to fit the height of its text (akin to isVerticallyResizable = true)
-    internal func updateFrameSizeIfNeeded() {
-        let currentFrameSize = frame.size
-
-        let proposedFrameHeight: CGFloat
-        if textLayoutManager.documentRange.isEmpty {
-            proposedFrameHeight = typingLineHeight
-        } else {
-            let endLocation = textLayoutManager.documentRange.endLocation
-            textLayoutManager.ensureLayout(for: NSTextRange(location: endLocation))
-            proposedFrameHeight = textLayoutManager.usageBoundsForTextContainer.height
+    // Update textContainer width to match textview width if track textview width
+    // widthTracksTextView = true
+    private func _configureTextContainerSize() {
+        var containerSize = textContainer.containerSize
+        if !isHorizontallyResizable {
+            containerSize.width = bounds.size.width // - _textContainerInset.width * 2
         }
 
-        let proposedFrameWidth: CGFloat
-        if widthTracksTextView, let contentWidth = scrollView?.contentView.bounds.maxX {
-            proposedFrameWidth = contentWidth
-        } else {
-            proposedFrameWidth = textLayoutManager.usageBoundsForTextContainer.maxX
+        if !isVerticallyResizable {
+            containerSize.height = bounds.size.height // - _textContainerInset.height * 2
         }
 
-        let proposedSize = CGSize(width: proposedFrameWidth, height: proposedFrameHeight)
-        if !currentFrameSize.isAlmostEqual(to: proposedSize) {
-            frame.size = proposedSize
+        if !textContainer.size.isAlmostEqual(to: containerSize)  {
+            textContainer.size = containerSize
         }
     }
 
-    // Update textContainer width to match textview width if track textview width
-    // widthTracksTextView = true
-    fileprivate func updateTextContainerSizeIfNeeded() {
-
-        let proposedSize = CGSize(
-            width: widthTracksTextView ? frame.width : STTextContainer().size.width,
-            height: heightTracksTextView ? frame.height : STTextContainer().size.height
-        )
-
-        if !textContainer.size.isAlmostEqual(to: proposedSize)  {
-            textContainer.size = proposedSize
-        }
+    open override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        _configureTextContainerSize()
     }
 
     open override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        updateTextContainerSizeIfNeeded()
+        _configureTextContainerSize()
     }
 
     open override func viewDidEndLiveResize() {
@@ -1081,6 +1047,53 @@ import AVFoundation
         }
         
         needsScrollToSelection = false
+    }
+
+    /// Resizes the receiver to fit its text.
+    open func sizeToFit() {
+        _configureTextContainerSize()
+
+        var size = textLayoutManager.usageBoundsForTextContainer.size
+        // add textContainerInset at some point
+        // size.width += textContainerInset.width * 2;
+        // size.height += textContainerInset.height * 2;
+
+        var horizontalInsets: CGFloat = 0
+        var verticalInsets: CGFloat = 0
+        if let clipView = scrollView?.contentView as? NSClipView {
+            horizontalInsets = clipView.contentInsets.horizontalInsets
+            verticalInsets = clipView.contentInsets.verticalInsets
+        }
+
+        if isHorizontallyResizable {
+            size.width = max(frame.size.width - horizontalInsets, size.width)
+        } else {
+            size.width = frame.size.width - horizontalInsets
+        }
+
+        if isVerticallyResizable {
+            // we should at least be our frame size if we're not in a clip view
+            size.height = max(frame.size.height - verticalInsets, size.height)
+        } else {
+            size.height = frame.size.height - verticalInsets
+        }
+
+        // if we're in a clip view we should at be at least as big as the clip view
+        if let clipView = scrollView?.contentView as? NSClipView {
+
+            if size.width < clipView.bounds.size.width - horizontalInsets {
+                size.width = clipView.bounds.size.width - horizontalInsets
+            }
+
+            if size.height < clipView.bounds.size.height - verticalInsets {
+                size.height = clipView.bounds.size.height - verticalInsets
+            }
+
+        }
+
+        if !frame.size.isAlmostEqual(to: size) {
+            self.setFrameSize(size)
+        }
     }
 
     private func layoutViewport() {

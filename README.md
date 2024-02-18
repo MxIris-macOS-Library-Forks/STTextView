@@ -159,8 +159,8 @@ textView.textColor = .textColor
 textView.string = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Aenean ornare lobortis sem a vulputate."
 textView.addAttributes([.foregroundColor: NSColor.red], range: NSRange(location: 10, length: 5))
 
-// Wrap lines to editor width
-textView.widthTracksTextView = true
+// Wrap/No wrap lines to editor width
+textView.isHorizontallyResizable = true
 
 // Highlight the selected line.
 textView.highlightSelectedLine = true

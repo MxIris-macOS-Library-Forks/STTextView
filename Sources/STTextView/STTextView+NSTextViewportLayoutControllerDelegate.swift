@@ -13,6 +13,8 @@ extension STTextView: NSTextViewportLayoutControllerDelegate {
         let minX: CGFloat
         let maxX: CGFloat
 
+        let visibleRect = scrollView?.documentVisibleRect ?? self.visibleRect
+
         if !overdrawRect.isEmpty, overdrawRect.intersects(visibleRect) {
             // Use preparedContentRect for vertical overdraw and ensure visibleRect is included at the minimum,
             // the width is always bounds width for proper line wrapping.
@@ -28,13 +30,14 @@ extension STTextView: NSTextViewportLayoutControllerDelegate {
             maxX = visibleRect.maxX
             maxY = visibleRect.maxY
         }
+
         return CGRect(x: minX, y: minY, width: maxX, height: maxY - minY)
     }
 
     public func textViewportLayoutControllerWillLayout(_ textViewportLayoutController: NSTextViewportLayoutController) {
         // TODO: update difference, not all layers
         contentView.subviews.removeAll {
-            type(of: $0) != insertionPointViewClass
+            type(of: $0) != STInsertionPointView.self
         }
     }
 
@@ -57,13 +60,15 @@ extension STTextView: NSTextViewportLayoutControllerDelegate {
     }
 
     public func textViewportLayoutControllerDidLayout(_ textViewportLayoutController: NSTextViewportLayoutController) {
-        updateFrameSizeIfNeeded()
+        sizeToFit()
         updateSelectionHighlights()
         adjustViewportOffsetIfNeeded()
         scrollView?.verticalRulerView?.invalidateHashMarks()
 
-        for events in plugins.events {
-            events.didLayoutViewportHandler?(textViewportLayoutController.viewportRange!)
+        if let viewportRange = textViewportLayoutController.viewportRange {
+            for events in plugins.events {
+                events.didLayoutViewportHandler?(viewportRange)
+            }
         }
     }
 
