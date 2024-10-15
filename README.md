@@ -1,27 +1,24 @@
-<p align="center">
-  <img width="64" src="https://user-images.githubusercontent.com/758033/235909140-3589bb7d-51a0-4df3-8d71-2dc30fcabc8c.png">
-</p>
+<img height="45" src="https://user-images.githubusercontent.com/758033/235909140-3589bb7d-51a0-4df3-8d71-2dc30fcabc8c.png">
 
 # STTextView
 
-Performant [macOS](https://www.apple.com/macos) TextView with line numbers and much more. (NSTextView replacement)
+Performant [macOS](https://www.apple.com/macos) and [iOS](https://www.apple.com/ios) TextView with line numbers and much more. (NSTextView/UITextView reimplementation)
 
-The goal of this project is to build [NSTextView](https://developer.apple.com/documentation/appkit/nstextview) replacement component utilizing [TextKit 2](https://developer.apple.com/videos/play/wwdc2021/10061/) framework. [due to many good reasons](#-textkit-2-bug-reports-list).
+The goal of this project is to build [NSTextView](https://developer.apple.com/documentation/appkit/nstextview)/[UITextView](https://developer.apple.com/documentation/uikit/uitextview) replacement reusable component utilizing [TextKit 2](https://developer.apple.com/videos/play/wwdc2021/10061/) framework. [due to many good reasons](#-textkit-2-bug-reports-list).
 
-The component is developed to serve [Swift Studio](https://swiftstudio.app) needs as a **source code editor**.
+The component is mainly developed to serve [Swift Studio](https://swiftstudio.app) needs as a **source code editor**.
 
-<img width="100%" alt="Screenshot 2023-04-24 at 02 03 51" src="https://user-images.githubusercontent.com/758033/233873957-3f94a73a-a401-4f54-9631-3002600ba6f8.png">
 
-https://user-images.githubusercontent.com/758033/217397725-1e217c25-24ac-4d9b-9812-b3c7e324a1ca.mp4
+![Poster](https://github.com/user-attachments/assets/58b1a58b-d8bd-44d0-9946-2336335f3b0d)
 
-[TextKit 2](https://developer.apple.com/forums/tags/wwdc21-10061) was announced during [WWDC 2021](https://developer.apple.com/videos/play/wwdc2021/10061/) as a TextKit 1 replacement for text layout and whatnot. Apple announced that `NSTextView`, the view component specialized for text editing, will adopt TextKit 2 and provide support along TextKit 1 bit. As I started to learn more about `NSTextView` + TextKit2, I realized as of today (Feb 2022), neither `NSTextView` is fully functional, nor TextKit 2 classes are fully functional. Along the way, I reported several bug reports to Apple requesting DTS (support tickets). Eventually, I got blocked by specific bugs that pushed me to start this project.
+[TextKit 2](https://developer.apple.com/forums/tags/wwdc21-10061) was announced during [WWDC 2021](https://developer.apple.com/videos/play/wwdc2021/10061/) as a TextKit 1 replacement for text layout and whatnot. Apple announced that `NSTextView`, the view component specialized for text editing, will adopt TextKit 2 and provide support along TextKit 1 bit. As I started to learn more about `NSTextView` + TextKit2, I realized that as of today (Feb 2022), neither `NSTextView` nor TextKit 2 classes are fully functional. Along the way, I reported several bug reports to Apple requesting DTS (support tickets). Eventually, I got blocked by specific bugs that pushed me to start this project.
 
 ## ✨ Features
 
 - macOS text system integration
 - Performant Text editing
-- Line numbers in a ruler view
-- Ruler Markers support
+- Display line numbers
+- Display invisible characters
 - Customization of colors and fonts
 - Toggle line wrapping on and off
 - Adjust the height of lines
@@ -30,7 +27,6 @@ https://user-images.githubusercontent.com/758033/217397725-1e217c25-24ac-4d9b-98
 - Search/Replace the text
 - Spelling and Grammar
 - Dictation
-- Display Invisible Characters
 - Customizable Completion support
 - Smooth scrolling of long content
 - LTR (Left To Right) / RTL (Right To Left) layout
@@ -39,15 +35,13 @@ https://user-images.githubusercontent.com/758033/217397725-1e217c25-24ac-4d9b-98
 - Anchored annotations (via plugin)
 - Source Code syntax highlighting (via plugin)
 
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/e18c058b-8a58-47e0-a57c-a3b01f3d93db" width="90%" />
+</div>
+
 ## 🤝 Support & Sponsors
 
 The financial sustainability of the project is possible thanks to the ongoing contributions from our [GitHub Sponsors](https://github.com/sponsors/krzyzanowskim)
-
-### Premium Sponsors
-
-  [Judo](https://judo.app) is a design and build tool for SwiftUI apps that writes production-ready code for you while you’re designing. Eliminate back-and-forth with developers and free them from unrewarding grunt work.
-
-[<img alt="judo.app" width="200" src="https://github-production-user-asset-6210df.s3.amazonaws.com/758033/257891209-932464f9-d756-4ddb-9946-198901ace96f.png" />](https://judo.app)
 
 ## 🗓️ Roadmap
 
@@ -57,7 +51,6 @@ STTextView is already well-suited as a text editor component. However, it still 
 
 #### Known issues
 
-- undo/redo while typing needs fixes
 - text dragging (partially implemented)
 
 ## 🚀 Getting Started
@@ -67,7 +60,7 @@ STTextView is already well-suited as a text editor component. However, it still 
 ```swift
 let package = Package(
     dependencies: [
-        .package(url: "https://github.com/krzyzanowskim/STTextView", from: "0.8.0")
+        .package(url: "https://github.com/krzyzanowskim/STTextView", from: "0.9.6")
     ]
 )
 ```
@@ -75,15 +68,16 @@ let package = Package(
 ## Demo Application
 
 The demo applications [TextEdit](TextEdit) and [TextEdit.SwiftUI](TextEdit.SwiftUI) lets you explore the library.
+
 ## Plugins
 
-Plugins in an STTextView component offer additional functionalities and customizations beyond the basic text display. They enhance the core capabilities of the text view by adding features such as syntax highlighting, word count tracking, and more. These plugins expand the STTextView's utility while maintaining a modular and adaptable software structure.
+Plugins in an STTextView component offer additional functionalities and customizations beyond the simple text display. They enhance the core capabilities of the text view by adding features such as syntax highlighting, word count tracking, and more. These plugins expand the STTextView's utility while maintaining a modular and adaptable software structure.
 
 - [Plugin-Neon](https://github.com/krzyzanowskim/STTextView-Plugin-Neon) Source Code Syntax Highlighting with [TreeSitter](https://tree-sitter.github.io/tree-sitter/) and [Neon](https://github.com/ChimeHQ/Neon).
 - [Plugin-TextFormation](https://github.com/ChimeHQ/STTextView-Plugin-TextFormation) Typing completions with [TextFormation](https://github.com/ChimeHQ/TextFormation).
 - [Plugin-Annotations](https://github.com/krzyzanowskim/STTextView-Plugin-Annotations) Anchored annotations (eg. inlined error message)) plugin.
-- [Plugin-Template](https://github.com/krzyzanowskim/STTextView-Plugin-Template) Dummy plugin template repository ready bo build new plugin.
-- ... add more plugins
+- [Plugin-Template](https://github.com/krzyzanowskim/STTextView-Plugin-Template) Dummy plugin template repository ready to build new plugin.
+- ... [add more](https://github.com/topics/sttextview) plugins
 
 ## Usage
 
@@ -95,7 +89,7 @@ The `TextView` is a [SwiftUI](https://developer.apple.com/xcode/swiftui/) view t
 * Faster than SwiftUI.TextEdit (https://twitter.com/krzyzanowskim/status/1677628085217243137)
 
 ```swift
-import STTextViewUI
+import STTextViewSwiftUI
 
 struct ContentView: View {
 
@@ -103,7 +97,7 @@ struct ContentView: View {
     @State private var selection: NSRange?
 
     var body: some View {
-        STTextViewUI.TextView(
+        TextView(
             text: $text,
             selection: $selection,
             options: [.wrapLines, .highlightSelectedLine],
@@ -116,7 +110,7 @@ struct ContentView: View {
 
 ### Create a TextView
 
-The `STTextView` is an `NSView` subclass and can be initialized like any other view. It has an API that is similar to the one of NSTextView.
+The `STTextView` is an `NSView` subclass and can be initialized like any other view. It has an API that is similar to that of NSTextView.
 
 ```swift
 import STTextView
@@ -124,6 +118,8 @@ import STTextView
 let textView = STTextView()
 view.addSubView(textView)
 ```
+
+(macOS) add to scroll view
 
 ```swift
 let textView = STTextView()
@@ -156,7 +152,7 @@ textView.font = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
 textView.textColor = .textColor
 
 // Set text value
-textView.string = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Aenean ornare lobortis sem a vulputate."
+textView.text = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Aenean ornare lobortis sem a vulputate."
 textView.addAttributes([.foregroundColor: NSColor.red], range: NSRange(location: 10, length: 5))
 
 // Wrap/No wrap lines to editor width
@@ -166,26 +162,14 @@ textView.isHorizontallyResizable = true
 textView.highlightSelectedLine = true
 ```
 
-Add line numbers using specialized `STLineNumberRulerView` (specialized subclass of `NSRulerView`)
+Add gutter with line numbers
 
 ```swift
-let textView = STTextView()
-let scrollView = NSScrollView()
-scrollView.documentView = textView
-
-// Line numbers
-let rulerView = STLineNumberRulerView(textView: textView)
-// Configure the ruler view
-rulerView.highlightSelectedLine = true
-// Allows to set markers.
-// rulerView.allowsMarkers = true
-
-// Add to NSScrollView containing STTextView
-scrollView.verticalRulerView = rulerView
-scrollView.rulersVisible = true
+textView.showLineNumbers = true
+textView.gutterView?.drawSeparator = true
 ```
 
-Enable an optional search-and-replace find interface inside a view, usually a scroll view.
+(macOS) Enable an optional search-and-replace find interface inside a view, usually a scroll view.
 
 ```swift
 textView.isIncrementalSearchingEnabled = true
@@ -211,6 +195,9 @@ List of **TextKit 2** issues and bugs related to NSTextView and the TextKit fram
 - FB13272586: NSTextContainer.size default value is not as documented
 - [FB13290979](https://gist.github.com/krzyzanowskim/7adc5ee66be68df2f76b9752476aadfb): NSTextContainer.lineFragmentPadding does not affect end of the fragment usageBoundsForTextContainer rectangle
 - [FB13291926](https://gist.github.com/krzyzanowskim/33a2478fa2281b77816acb7a7f6f77ac): NSTextLayoutManager.usageBoundsForTextContainer observer is never trigerred
+- [FB13789916](https://gist.github.com/krzyzanowskim/340c5810fc427e346b7c4b06d46b1e10): NSTextInputClient.setMarkedText provide bogus selection range for Chinese keyboard
+- [FB14700414](https://gist.github.com/krzyzanowskim/0a83eb9d5303016b277920a6b7c9f9fc): NSTextList doesn't work since macOS 14 (regression)
+- [FB15131180](https://gist.github.com/krzyzanowskim/510ecf8df259d779e22df8ad13c256c0): TextKit extra line frame is incorrect and does not respect layout fragment size (regression)
 
 ... I'm aware that the list of issues is not complete. I managed to workaround most of the problems in STTextView.
 
@@ -222,7 +209,7 @@ List of **TextKit 2** issues and bugs related to NSTextView and the TextKit fram
 
 Start a new [discussion topic](https://github.com/krzyzanowskim/STTextView/discussions) or a pull request.
 
-I'd love to hear from you! Get in touch via X/Twitter [@krzyzanowskim](https://x.com/krzyzanowskim), mastodon [@krzyzanowskim@mastodon.social](https://mastodon.social/@krzyzanowskim).
+I'd love to hear from you! Get in touch via X/Twitter [@krzyzanowskim](https://x.com/krzyzanowskim), Mastodon [@krzyzanowskim@mastodon.social](https://mastodon.social/@krzyzanowskim).
 
 ## License
 
