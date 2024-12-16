@@ -2,12 +2,13 @@
 //  https://github.com/krzyzanowskim/STTextView/blob/main/LICENSE.md
 //
 //
-//  STTextView
-//      |---selectionView
-//              |---(STLineHighlightView | SelectionHighlightView)
-//      |---contentView
-//              |---(STInsertionPointView | STTextLayoutFragmentView)
-//      |---decorationView
+//  NSScrollView
+//      |---STTextView
+//          |---selectionView
+//                  |---(STLineHighlightView | SelectionHighlightView)
+//          |---contentView
+//                  |---(STInsertionPointView | STTextLayoutFragmentView)
+//          |---decorationView
 //      |---gutterView
 //
 //
@@ -427,13 +428,18 @@ import AVFoundation
     }
 
     /// Content view. Layout fragments content.
-    internal let contentView: ContentView
+    internal let contentView: STContentView
+
+    /// Content frame. Layout fragments content frame.
+    public var contentFrame: CGRect {
+        contentView.frame
+    }
 
     /// Selection highlight content view.
-    internal let selectionView: SelectionView
+    internal let selectionView: STSelectionView
 
     /// Layout fragments decoration, custom rendering attributes
-    internal let decorationView: DecorationView
+    internal let decorationView: STDecorationView
 
     internal var fragmentViewMap: NSMapTable<NSTextLayoutFragment, STTextLayoutFragmentView>
     private var usageBoundsForTextContainerObserver: NSKeyValueObservation?
@@ -450,6 +456,8 @@ import AVFoundation
 
     /// NSTextFinderClient
     internal let textFinderClient: STTextFinderClient
+
+    internal let textFinderBarContainer: STTextFinderBarContainer
 
     internal var textCheckingController: NSTextCheckingController!
 
@@ -579,16 +587,17 @@ import AVFoundation
         textContentManager.addTextLayoutManager(textLayoutManager)
         textContentManager.primaryTextLayoutManager = textLayoutManager
 
-        contentView = ContentView()
-        selectionView = SelectionView()
-        decorationView = DecorationView(textLayoutManager: textLayoutManager)
+        contentView = STContentView()
+        selectionView = STSelectionView()
+        decorationView = STDecorationView(textLayoutManager: textLayoutManager)
 
         allowsUndo = true
         _undoManager = CoalescingUndoManager()
 
-
-        textFinder = NSTextFinder()
         textFinderClient = STTextFinderClient()
+        textFinderBarContainer = STTextFinderBarContainer()
+        textFinder = NSTextFinder()
+        textFinder.client = textFinderClient
 
         _defaultTypingAttributes = [
             .paragraphStyle: NSParagraphStyle.default,
@@ -599,6 +608,9 @@ import AVFoundation
         _typingAttributes = [:]
 
         super.init(frame: frameRect)
+
+        textFinderBarContainer.client = self
+        textFinder.findBarContainer = textFinderBarContainer
 
         setSelectedTextRange(NSTextRange(location: textLayoutManager.documentRange.location), updateLayout: false)
 
@@ -718,25 +730,23 @@ import AVFoundation
     open override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
 
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(enclosingClipViewBoundsDidChange(_:)),
-            name: NSClipView.boundsDidChangeNotification,
-            object: scrollView?.contentView
-        )
+        if let scrollView {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(enclosingClipViewBoundsDidChange(_:)),
+                name: NSClipView.boundsDidChangeNotification,
+                object: scrollView.contentView
+            )
+        }
     }
 
     open override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
 
         if self.window != nil {
-            textFinder.client = textFinderClient
-            textFinder.findBarContainer = enclosingScrollView
-
             // setup registerd plugins
             setupPlugins()
         }
-
     }
 
     open override func hitTest(_ point: NSPoint) -> NSView? {
@@ -1190,15 +1200,13 @@ import AVFoundation
 
         }
 
-        let gutterPadding = gutterView?.bounds.width ?? 0
-        size.width += gutterPadding
-
         logger.debug("proposed size (\(size.width), \(size.height)) \(#function)")
 
         if !frame.size.isAlmostEqual(to: size) {
             self.setFrameSize(size)
         }
 
+        let gutterPadding = gutterView?.bounds.width ?? 0
         let newContentFrame = CGRect(
             x: gutterPadding,
             y: frame.origin.y,
