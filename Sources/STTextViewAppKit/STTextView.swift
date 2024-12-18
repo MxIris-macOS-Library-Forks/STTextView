@@ -335,10 +335,6 @@ import AVFoundation
     @Invalidating(.display)
     @objc dynamic open var selectedLineHighlightColor: NSColor = NSColor.selectedTextBackgroundColor.withAlphaComponent(0.25)
 
-    /// The background color of a text selection.
-    @Invalidating(.display)
-    @objc dynamic open var selectionBackgroundColor: NSColor = NSColor.selectedTextBackgroundColor
-
     /// The text view's background color
     @Invalidating(.display)
     @objc dynamic open var backgroundColor: NSColor? = nil {
@@ -722,6 +718,12 @@ import AVFoundation
 
     open override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+
+        effectiveAppearance.performAsCurrentDrawingAppearance { [weak self] in
+            guard let self else { return }
+            self.backgroundColor = self.backgroundColor
+        }
+
         self.updateSelectedRangeHighlight()
         self.layoutGutter()
         self.updateSelectedLineHighlight()
@@ -951,7 +953,7 @@ import AVFoundation
 
         func layoutHighlightView(in frameRect: CGRect) {
             let highlightView = STLineHighlightView(frame: frameRect)
-            highlightView.layer?.backgroundColor = selectedLineHighlightColor.cgColor
+            highlightView.backgroundColor = selectedLineHighlightColor
             selectionView.addSubview(highlightView)
         }
 
