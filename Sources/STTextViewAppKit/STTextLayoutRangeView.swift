@@ -22,18 +22,18 @@ open class STTextLayoutRangeView: NSView {
         bounds.size
     }
 
-    public init(textLayoutManager: NSTextLayoutManager, textRange: NSTextRange) {
+    public init(textLayoutManager: NSTextLayoutManager, textRange: NSTextRange?) {
         self.textLayoutManager = textLayoutManager
-        self.textRange = textRange
+        self.textRange = textRange ?? textLayoutManager.documentRange
 
         // Calculate frame. Expand to the size of layout fragments in the asked range
-        var frame: CGRect = textLayoutManager.textSegmentFrame(in: textRange, type: .standard)!
-        textLayoutManager.enumerateTextLayoutFragments(in: textRange) { textLayoutFragment in
+        var frame: CGRect = textLayoutManager.textSegmentFrame(in: self.textRange, type: .standard)!
+        textLayoutManager.enumerateTextLayoutFragments(in: self.textRange) { textLayoutFragment in
             frame = CGRect(
-                x: min(frame.origin.x, textLayoutFragment.layoutFragmentFrame.origin.x),
-                y: frame.origin.y,
-                width: max(frame.size.width, textLayoutFragment.renderingSurfaceBounds.width),
-                height: max(frame.size.height, textLayoutFragment.renderingSurfaceBounds.height)
+                x: min(frame.origin.x, textLayoutFragment.layoutFragmentFrame.minX),
+                y: min(frame.origin.y, textLayoutFragment.layoutFragmentFrame.minY),
+                width: max(frame.size.width, textLayoutFragment.layoutFragmentFrame.maxX + textLayoutFragment.leadingPadding + textLayoutFragment.trailingPadding),
+                height: max(frame.size.height, textLayoutFragment.layoutFragmentFrame.maxY + textLayoutFragment.topMargin + textLayoutFragment.bottomMargin)
             )
             return true
         }
@@ -46,21 +46,18 @@ open class STTextLayoutRangeView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    open func image() -> NSImage {
-        let imageRep = bitmapImageRepForCachingDisplay(in: bounds)!
-        cacheDisplay(in: bounds, to: imageRep)
-
-        return NSImage(cgImage: imageRep.cgImage!, size: bounds.size)
+    open func image() -> NSImage? {
+        stImage()
     }
 
     open override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
 
-        var origin: CGPoint = .zero
         textLayoutManager.enumerateTextLayoutFragments(in: textRange) { textLayoutFragment in
             // at what location start draw the line. the first character is at textRange.location
             // I want to draw just a part of the line fragment, however I can only draw the whole line
             // so remove/delete unnecessary part of the line
+            var origin = textLayoutFragment.layoutFragmentFrame.origin
             for textLineFragment in textLayoutFragment.textLineFragments {
                 guard let textLineFragmentRange = textLineFragment.textRange(in: textLayoutFragment) else {
                     continue
