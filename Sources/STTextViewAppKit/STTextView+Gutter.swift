@@ -22,7 +22,7 @@ extension STTextView {
                 gutterView.highlightSelectedLine = highlightSelectedLine
                 gutterView.selectedLineHighlightColor = selectedLineHighlightColor
                 if let scrollView {
-                    scrollView.addSubview(gutterView)
+                    scrollView.addSubview(gutterView, positioned: .below, relativeTo: scrollView.horizontalScroller)
                 }
                 self.gutterView = gutterView
                 needsLayout = true
@@ -43,7 +43,7 @@ extension STTextView {
     internal func layoutGutter() {
         if let gutterView {
             gutterView.frame.origin = frame.origin
-            gutterView.frame.size.height = scrollView?.bounds.height ?? frame.height
+            gutterView.frame.size.height = contentView.visibleRect.height
             layoutGutterLineNumbers()
             layoutGutterMarkers()
         }
