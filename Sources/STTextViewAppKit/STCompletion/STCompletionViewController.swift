@@ -99,7 +99,6 @@ open class STCompletionViewController: NSViewController, STCompletionViewControl
                     switch c {
                     case "\u{001B}", // esc
                          "\u{0009}", // NSTabCharacter
-                         "\u{0008}", // NSBackspaceCharacter
                          "\u{000A}", // NSNewlineCharacter
                          "\u{000D}", // NSCarriageReturnCharacter
                          "\u{0003}": // NSEnterCharacter
@@ -155,14 +154,6 @@ open class STCompletionViewController: NSViewController, STCompletionViewControl
 
     open override func insertNewline(_ sender: Any?) {
         self.insertCompletion(movement: .return)
-    }
-
-    open override func deleteBackward(_ sender: Any?) {
-        view.window?.windowController?.close()
-    }
-
-    open override func deleteForward(_ sender: Any?) {
-        view.window?.windowController?.close()
     }
 
     open override func cancelOperation(_ sender: Any?) {
