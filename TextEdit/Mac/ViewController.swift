@@ -160,8 +160,10 @@ extension ViewController: STTextViewDelegate {
     }
 
     // Completion
-
-    func textView(_ textView: STTextView, completionItemsAtLocation location: NSTextLocation) -> [any STCompletionItem]? {
+    func textView(_ textView: STTextView, completionItemsAtLocation location: NSTextLocation) async -> [any STCompletionItem]? {
+        
+        // fake delay
+        // try? await Task.sleep(nanoseconds: UInt64.random(in: 0...1) * 1_000_000_000)
 
         var word: String?
         textView.textLayoutManager.enumerateSubstrings(from: location, options: [.byWords, .reverse]) { substring, substringRange, enclosingRange, stop in
@@ -171,7 +173,10 @@ extension ViewController: STTextViewDelegate {
 
         if let word {
             return completions.filter { item in
-                item.insertText.hasPrefix(word.localizedLowercase)
+                if Task.isCancelled {
+                    return false
+                }
+                return item.insertText.hasPrefix(word.localizedLowercase)
             }
         }
 
