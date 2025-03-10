@@ -3,7 +3,7 @@
 //
 //
 //  STTextView
-//      |---conventView
+//      |---contentView
 //              |---STLineHighlightView
 //              |---STTextLayoutFragmentView
 //      |---gutterView
@@ -34,7 +34,18 @@ import STTextViewCommon
     open var returnKeyType: UIReturnKeyType = .default
 
     /// The manager that lays out text for the text view's text container.
-    @objc open private(set) var textLayoutManager: NSTextLayoutManager
+    @objc dynamic open var textLayoutManager: NSTextLayoutManager {
+        willSet {
+            textContentManager.primaryTextLayoutManager = nil
+            textContentManager.removeTextLayoutManager(newValue)
+        }
+        didSet {
+            textContentManager.addTextLayoutManager(textLayoutManager)
+            textContentManager.primaryTextLayoutManager = textLayoutManager
+            setupTextLayoutManager(textLayoutManager)
+            self.text = text
+        }
+    }
 
     /// The text view's text storage object.
     @objc open private(set) var textContentManager: NSTextContentManager
@@ -288,13 +299,10 @@ import STTextViewCommon
     // @Invalidating(.insertionPoint, .cursorRects)
     @objc dynamic open var isEditable: Bool {
         didSet {
-            isSelectable = isEditable
-
-            if !isEditable, isEditable != oldValue {
-                _ = resignFirstResponder()
+            if isEditable != oldValue && !isEditable {
+                resignFirstResponder()
                 updateEditableInteraction()
             }
-
         }
     }
 
@@ -302,10 +310,12 @@ import STTextViewCommon
     // @Invalidating(.insertionPoint, .cursorRects)
     @objc dynamic open var isSelectable: Bool {
         didSet {
-            if !isSelectable {
-                isEditable = false
+            if isSelectable != oldValue, !isSelectable {
+                resignFirstResponder()
+                updateEditableInteraction()
             }
         }
+
     }
 
     /// The receiver’s default paragraph style.
@@ -436,10 +446,8 @@ import STTextViewCommon
 
         super.init(frame: frame)
 
-        setSelectedTextRange(NSTextRange(location: textLayoutManager.documentRange.location), updateLayout: false)
-
-        textLayoutManager.delegate = self
-        textLayoutManager.textViewportLayoutController.delegate = self
+        contentView.clipsToBounds = clipsToBounds
+        lineHighlightView.clipsToBounds = clipsToBounds
 
         addSubview(contentView)
         contentView.addSubview(lineHighlightView)
@@ -453,7 +461,25 @@ import STTextViewCommon
         updateEditableInteraction()
         isGutterVisible = showsLineNumbers
 
-        NotificationCenter.default.addObserver(forName: STTextLayoutManager.didChangeSelectionNotification, object: textLayoutManager, queue: .main) { [weak self] notification in
+        setupTextLayoutManager(textLayoutManager)
+        setSelectedTextRange(NSTextRange(location: textLayoutManager.documentRange.location), updateLayout: false)
+    }
+
+    @available(*, unavailable)
+    required public init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private var didChangeSelectionNotificationObserver: NSObjectProtocol?
+    private func setupTextLayoutManager(_ textLayoutManager: NSTextLayoutManager) {
+        textLayoutManager.delegate = self
+        textLayoutManager.textViewportLayoutController.delegate = self
+
+        // Forward didChangeSelectionNotification from STTextLayoutManager
+        if let didChangeSelectionNotificationObserver {
+            NotificationCenter.default.removeObserver(didChangeSelectionNotificationObserver)
+        }
+        didChangeSelectionNotificationObserver = NotificationCenter.default.addObserver(forName: STTextLayoutManager.didChangeSelectionNotification, object: textLayoutManager, queue: .main) { [weak self] notification in
             guard let self = self else { return }
             let textViewNotification = Notification(name: Self.didChangeSelectionNotification, object: self, userInfo: notification.userInfo)
 
@@ -461,11 +487,6 @@ import STTextViewCommon
             self.delegateProxy.textViewDidChangeSelection(textViewNotification)
             // NSAccessibility.post(element: self, notification: .selectedTextChanged)
         }
-    }
-
-    @available(*, unavailable)
-    required public init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
     }
 
     /// This action method shows or hides the ruler, if the receiver is enclosed in a scroll view
@@ -608,10 +629,17 @@ import STTextViewCommon
             }
         }
 
+        func setupNoInteraction() {
+            removeInteraction(editableTextInteraction)
+            removeInteraction(nonEditableTextInteraction)
+        }
+
         if isEditable {
             setupEditableInteraction()
-        } else {
+        } else if isSelectable {
             setupNonEditableInteraction()
+        } else {
+            setupNoInteraction()
         }
     }
 
@@ -637,16 +665,6 @@ import STTextViewCommon
     }
 
     open override func sizeToFit() {
-        let gutterWidth = gutterView?.frame.width ?? 0
-        contentView.frame.origin.x = gutterWidth
-        contentView.frame.size.width = max(textLayoutManager.usageBoundsForTextContainer.size.width + textContainer.lineFragmentPadding, frame.width - gutterWidth)
-        contentView.frame.size.height = max(textLayoutManager.usageBoundsForTextContainer.size.height, frame.height)
-        contentSize = contentView.frame.size
-
-        super.sizeToFit()
-
-        _configureTextContainerSize()
-
         // Estimate `usageBoundsForTextContainer` size is based on performed layout.
         // If layout didn't happen for the whole document, it only cover
         // the fragment that is known. And even after ensureLayout for the whole document
@@ -665,23 +683,58 @@ import STTextViewCommon
         // Asking for the end location result in estimated `usageBoundsForTextContainer`
         // that eventually get right as more and more layout happen (when scrolling)
 
+        // Estimated text container size to layout document
         textLayoutManager.ensureLayout(for: NSTextRange(location: textLayoutManager.documentRange.endLocation))
+
+        super.sizeToFit()
+
+        let usageBoundsForTextContainer = textLayoutManager.usageBoundsForTextContainer
+        logger.debug("usageBoundsForTextContainer \(usageBoundsForTextContainer.debugDescription) \(#function)")
+
+        let gutterWidth = gutterView?.frame.width ?? 0
+        let verticalScrollInset = contentInset.top + contentInset.bottom
+        let visibleRectSize = self.bounds.size
+
+        let frameSize: CGSize
+        if isHorizontallyResizable {
+            // no-wrapping
+            frameSize = CGSize(
+                width: max(usageBoundsForTextContainer.size.width + gutterWidth + textContainer.lineFragmentPadding, visibleRectSize.width),
+                height: max(usageBoundsForTextContainer.size.height, visibleRectSize.height - verticalScrollInset)
+            )
+        } else {
+            // wrapping
+            frameSize = CGSize(
+                width: visibleRectSize.width - gutterWidth,
+                height: max(usageBoundsForTextContainer.size.height, visibleRectSize.height - verticalScrollInset)
+            )
+        }
+
+        if !frame.size.isAlmostEqual(to: frameSize) {
+            logger.debug("contentView.frame.size (\(frameSize.width), \(frameSize.height)) \(#function)")
+            self.contentView.frame.origin.x = gutterWidth
+            self.contentView.frame.size = frameSize
+            self.contentSize = frameSize
+        }
+
+        _configureTextContainerSize()
     }
 
     // Update textContainer width to match textview width if track textview width
     // widthTracksTextView = true
     private func _configureTextContainerSize() {
-        var containerSize = textContainer.size
+        var proposedSize = textContainer.size
         if !isHorizontallyResizable {
-            containerSize.width = contentSize.width // - _textContainerInset.width * 2
+            proposedSize.width = contentSize.width // - _textContainerInset.width * 2
         }
 
         if !isVerticallyResizable {
-            containerSize.height = contentSize.height // - _textContainerInset.height * 2
+            proposedSize.height = contentSize.height // - _textContainerInset.height * 2
         }
 
-        if !textContainer.size.isAlmostEqual(to: containerSize)  {
-            textContainer.size = containerSize
+        if !textContainer.size.isAlmostEqual(to: proposedSize)  {
+            textContainer.size = proposedSize
+            logger.debug("textContainer.size (\(self.textContainer.size.width), \(self.textContainer.size.width)) \(#function)")
         }
     }
 

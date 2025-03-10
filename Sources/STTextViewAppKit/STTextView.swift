@@ -401,7 +401,18 @@ import AVFoundation
     internal let delegateProxy = STTextViewDelegateProxy(source: nil)
 
     /// The manager that lays out text for the text view's text container.
-    @objc open private(set) var textLayoutManager: NSTextLayoutManager
+    @objc dynamic open var textLayoutManager: NSTextLayoutManager {
+        willSet {
+            textContentManager.primaryTextLayoutManager = nil
+            textContentManager.removeTextLayoutManager(newValue)
+        }
+        didSet {
+            textContentManager.addTextLayoutManager(textLayoutManager)
+            textContentManager.primaryTextLayoutManager = textLayoutManager
+            setupTextLayoutManager(textLayoutManager)
+            self.text = text
+        }
+    }
 
     @available(*, deprecated, renamed: "textContentManager")
     open var textContentStorage: NSTextContentStorage {
@@ -606,9 +617,6 @@ import AVFoundation
         textFinderBarContainer.client = self
         textFinder.findBarContainer = textFinderBarContainer
 
-        setSelectedTextRange(NSTextRange(location: textLayoutManager.documentRange.location), updateLayout: false)
-
-        textLayoutManager.delegate = self
         textFinderClient.textView = self
         textCheckingController = NSTextCheckingController(client: self)
 
@@ -617,8 +625,6 @@ import AVFoundation
 
         wantsLayer = true
         autoresizingMask = [.width, .height]
-
-        textLayoutManager.textViewportLayoutController.delegate = self
 
         addSubview(selectionView)
         addSubview(contentView)
@@ -630,26 +636,8 @@ import AVFoundation
             addGestureRecognizer(recognizer)
         }
 
-        // Forward didChangeSelectionNotification from STTextLayoutManager
-        NotificationCenter.default.addObserver(forName: STTextLayoutManager.didChangeSelectionNotification, object: textLayoutManager, queue: .main) { [weak self] notification in
-            guard let self = self else { return }
-
-            _yankingManager.selectionChanged()
-
-            let textViewNotification = Notification(name: Self.didChangeSelectionNotification, object: self, userInfo: notification.userInfo)
-
-            NotificationCenter.default.post(textViewNotification)
-            self.delegateProxy.textViewDidChangeSelection(textViewNotification)
-
-            NSAccessibility.post(element: self, notification: .selectedTextChanged)
-            // textCheckingController.didChangeSelectedRange()
-        }
-
-
-        usageBoundsForTextContainerObserver = textLayoutManager.observe(\.usageBoundsForTextContainer, options: [.initial, .new]) { [weak self] _, _ in
-            // FB13291926: this notification no longer works
-            self?.needsUpdateConstraints = true
-        }
+        setupTextLayoutManager(textLayoutManager)
+        setSelectedTextRange(NSTextRange(location: textLayoutManager.documentRange.location), updateLayout: false)
     }
 
     @available(*, unavailable)
@@ -663,6 +651,36 @@ import AVFoundation
             plugins.forEach { plugin in
                 plugin.instance.tearDown()
             }
+        }
+    }
+
+    private var didChangeSelectionNotificationObserver: NSObjectProtocol?
+    private func setupTextLayoutManager(_ textLayoutManager: NSTextLayoutManager) {
+        textLayoutManager.delegate = self
+        textLayoutManager.textViewportLayoutController.delegate = self
+
+        // Forward didChangeSelectionNotification from STTextLayoutManager
+        if let didChangeSelectionNotificationObserver {
+            NotificationCenter.default.removeObserver(didChangeSelectionNotificationObserver)
+        }
+        didChangeSelectionNotificationObserver = NotificationCenter.default.addObserver(forName: STTextLayoutManager.didChangeSelectionNotification, object: textLayoutManager, queue: .main) { [weak self] notification in
+            guard let self = self else { return }
+
+            _yankingManager.selectionChanged()
+
+            let textViewNotification = Notification(name: Self.didChangeSelectionNotification, object: self, userInfo: notification.userInfo)
+
+            NotificationCenter.default.post(textViewNotification)
+            self.delegateProxy.textViewDidChangeSelection(textViewNotification)
+
+            NSAccessibility.post(element: self, notification: .selectedTextChanged)
+            // textCheckingController.didChangeSelectedRange()
+        }
+
+        usageBoundsForTextContainerObserver = nil
+        usageBoundsForTextContainerObserver = textLayoutManager.observe(\.usageBoundsForTextContainer, options: [.initial, .new]) { [weak self] _, _ in
+            // FB13291926: this notification no longer works
+            self?.needsUpdateConstraints = true
         }
     }
 
@@ -1220,36 +1238,6 @@ import AVFoundation
         }
         
         _configureTextContainerSize()
-
-        // add textContainerInset at some point
-        // size.width += textContainerInset.width * 2;
-        // size.height += textContainerInset.height * 2;
-
-        // if isVerticallyResizable {
-        //     // we should at least be the visible size if we're not in a clip view
-        //     // however the `size` may be bananas (estimated) and enlarge too much
-        //     // that going never going to shrink later.
-        //     // It is expected that vertically height going to grow and shring (that does not apply to horizontally)
-        //     //
-        //     // size.height = max(frame.size.height - verticalInsets, size.height)
-        // } else {
-        //     size.height = frame.size.height - verticalInsets
-        // }
-
-        // if we're in a clip view we should at be at least as big as the clip view
-        // if let clipView = scrollView?.contentView as? NSClipView {
-        //     let horizontalInsets = clipView.contentInsets.horizontalInsets
-        //     let verticalInsets = clipView.contentInsets.verticalInsets
-        //
-        //     if size.width < clipView.bounds.size.width - horizontalInsets {
-        //         size.width = clipView.bounds.size.width - horizontalInsets
-        //     }
-        //
-        //     if size.height < clipView.bounds.size.height - verticalInsets {
-        //         size.height = clipView.bounds.size.height - verticalInsets
-        //     }
-        //
-        // }
     }
 
     internal func layoutViewport() {
