@@ -7,6 +7,8 @@ import SwiftUI
 open class STCompletionViewController: NSViewController, STCompletionViewControllerProtocol {
 
     public weak var delegate: STCompletionViewControllerDelegate?
+    public var tableView: NSTableView!
+    private var scrollView: NSScrollView!
 
     open var items: [any STCompletionItem] = [] {
         didSet {
@@ -15,24 +17,17 @@ open class STCompletionViewController: NSViewController, STCompletionViewControl
         }
     }
 
-    public let tableView = NSTableView()
 
     private var eventMonitor: Any?
 
     open override func loadView() {
-        view = NSView()
-        view.translatesAutoresizingMaskIntoConstraints = false
+        view = NSView(frame: .zero)
+        view.autoresizingMask = [.width, .height]
         view.wantsLayer = true
         view.layer?.cornerRadius = 8
         view.layer?.cornerCurve = .continuous
 
-        NSLayoutConstraint.activate(
-            [
-                view.widthAnchor.constraint(greaterThanOrEqualToConstant: 320)
-            ]
-        )
-
-        let backgroundEffect = NSVisualEffectView(frame: view.bounds)
+        let backgroundEffect = NSVisualEffectView(frame: view.frame)
         backgroundEffect.autoresizingMask = [.width, .height]
         backgroundEffect.blendingMode = .withinWindow
         backgroundEffect.material = .windowBackground
@@ -40,52 +35,50 @@ open class STCompletionViewController: NSViewController, STCompletionViewControl
         backgroundEffect.wantsLayer = true
         view.addSubview(backgroundEffect)
 
-        tableView.style = .plain
-        tableView.translatesAutoresizingMaskIntoConstraints = false
-        tableView.headerView = nil
-        tableView.usesAlternatingRowBackgroundColors = false
-        tableView.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
-        tableView.allowsColumnResizing = false
-        tableView.rowHeight = 22
-        tableView.usesAutomaticRowHeights = false
-        tableView.rowSizeStyle = .custom
-        tableView.intercellSpacing = CGSize(width: 4, height: 2)
-        tableView.backgroundColor = .clear
-        tableView.selectionHighlightStyle = .regular
-        tableView.allowsEmptySelection = false
-        tableView.action = #selector(tableViewAction(_:))
-        tableView.doubleAction = #selector(tableViewDoubleAction(_:))
-        tableView.target = self
+        tableView = NSTableView(frame: view.frame)
+        tableView.autoresizingMask = [.width, .height]
 
-        do {
-            let nameColumn = NSTableColumn(identifier: .labelColumn)
-            nameColumn.resizingMask = .autoresizingMask
-            tableView.addTableColumn(nameColumn)
-        }
+        let scrollView = NSScrollView(frame: view.frame)
+        scrollView.autoresizingMask = [.width, .height]
+        scrollView.documentView = tableView
+        view.addSubview(scrollView)
+        self.scrollView = scrollView
+    }
 
-        tableView.dataSource = self
-        tableView.delegate = self
-
-        let scrollView = NSScrollView()
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
+    open override func viewDidLoad() {
+        super.viewDidLoad()
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentInsets = NSEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
         scrollView.drawsBackground = false
         scrollView.backgroundColor = .clear
         scrollView.borderType = .noBorder
-        scrollView.autoresizingMask = [.width, .height]
         scrollView.hasVerticalScroller = true
-        scrollView.documentView = tableView
+        scrollView.verticalScroller = NoKnobScroller()
 
-        view.addSubview(scrollView)
-        NSLayoutConstraint.activate(
-            [
-                scrollView.topAnchor.constraint(equalTo: view.topAnchor),
-                scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-                scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-                scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
-            ]
-        )
+        tableView.style = .plain
+        tableView.usesAlternatingRowBackgroundColors = false
+        tableView.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
+        tableView.allowsColumnResizing = false
+        tableView.usesAutomaticRowHeights = false
+        tableView.backgroundColor = .clear
+        tableView.headerView = nil
+        tableView.rowHeight = 22
+        tableView.rowSizeStyle = .custom
+        tableView.intercellSpacing = CGSize(width: 4, height: 2)
+        tableView.selectionHighlightStyle = .regular
+        tableView.allowsEmptySelection = false
+        tableView.action = #selector(tableViewAction(_:))
+        tableView.doubleAction = #selector(tableViewDoubleAction(_:))
+        tableView.target = self
+        tableView.dataSource = self
+        tableView.delegate = self
+
+        do {
+            let labelColumn = NSTableColumn(identifier: .labelColumn)
+            labelColumn.resizingMask = .autoresizingMask
+            tableView.addTableColumn(labelColumn)
+        }
+
     }
 
     @objc open func tableViewAction(_ sender: Any?) {
@@ -133,23 +126,6 @@ open class STCompletionViewController: NSViewController, STCompletionViewControl
             NSEvent.removeMonitor(eventMonitor)
         }
         eventMonitor = nil
-    }
-
-    private var heightConstraint: NSLayoutConstraint!
-
-    open override func updateViewConstraints() {
-        if heightConstraint == nil {
-            heightConstraint = view.heightAnchor.constraint(greaterThanOrEqualToConstant: 0)
-            heightConstraint.isActive = true
-        }
-
-        let maxVisibleItemsCount = min(8.5, CGFloat(items.count))
-        heightConstraint.constant = max(
-            tableView.rowHeight,
-            (maxVisibleItemsCount * tableView.rowHeight) + (tableView.intercellSpacing.height * maxVisibleItemsCount) + (tableView.enclosingScrollView!.contentInsets.top + tableView.enclosingScrollView!.contentInsets.bottom)
-        )
-
-        super.updateViewConstraints()
     }
 
     open override func insertTab(_ sender: Any?) {
@@ -230,4 +206,14 @@ private class STTableRowView: NSTableRowView {
 
 private extension NSUserInterfaceItemIdentifier {
     static let labelColumn = NSUserInterfaceItemIdentifier("LabelColumn")
+}
+
+private final class NoKnobScroller: NSScroller {
+    override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {
+
+    }
+
+    override class var isCompatibleWithOverlayScrollers: Bool {
+        true
+    }
 }
