@@ -893,9 +893,10 @@ import AVFoundation
     }
 
     open override func prepareContent(in rect: NSRect) {
-        var insetRect = rect.inset(dy: -visibleRect.height / 4)
-        insetRect.origin = CGPoint(x: max(0, insetRect.origin.x), y: max(insetRect.origin.y, 0))
-        super.prepareContent(in: insetRect)
+        var prepareRect = rect
+        prepareRect.origin.y = max(0, prepareRect.origin.y + (visibleRect.height * 2))
+        prepareRect.size.height += visibleRect.height
+        super.prepareContent(in: prepareRect)
         layoutViewport()
     }
 
@@ -1296,29 +1297,6 @@ import AVFoundation
         // even though viewport range is properly calculated.
         // No known workaround.
         textLayoutManager.textViewportLayoutController.layoutViewport()
-    }
-
-    open override func scroll(_ point: NSPoint) {
-        contentView.scroll(point)
-    }
-
-    @discardableResult
-    internal func scrollToVisible(_ selectionTextRange: NSTextRange, type: NSTextLayoutManager.SegmentType) -> Bool {
-        guard var rect = textLayoutManager.textSegmentFrame(in: selectionTextRange, type: type) else {
-            return false
-        }
-
-        if rect.width.isZero {
-            // add padding around the point to ensure the visibility the segment
-            // since the width of the segment is 0 for a selection
-            rect = rect.inset(by: .init(top: 0, left: -textContainer.lineFragmentPadding, bottom: 0, right: -textContainer.lineFragmentPadding))
-        }
-
-        // scroll to visible IN clip view (ignoring gutter view overlay)
-        // adjust rect to mimick it's size to include gutter overlay
-        rect.origin.x -= gutterView?.frame.width ?? 0
-        rect.size.width += gutterView?.frame.width ?? 0
-        return contentView.scrollToVisible(rect)
     }
 
     open func scrollRangeToVisible(_ range: NSRange) {
