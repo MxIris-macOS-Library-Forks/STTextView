@@ -918,7 +918,14 @@ import AVFoundation
     }
 
     open override var intrinsicContentSize: NSSize {
-        textLayoutManager.usageBoundsForTextContainer.size
+        // usageBoundsForTextContainer already includes lineFragmentPadding via STTextLayoutManager workaround
+        let textSize = textLayoutManager.usageBoundsForTextContainer.size
+        let gutterWidth = gutterView?.frame.width ?? 0
+        
+        return NSSize(
+            width: textSize.width + gutterWidth,
+            height: textSize.height
+        )
     }
 
     open override class var isCompatibleWithResponsiveScrolling: Bool {
@@ -1243,30 +1250,33 @@ import AVFoundation
     open override func layout() {
         super.layout()
 
-        if inLiveResize {
-            throttle(0.05, identifier: "layoutViewport", option: .ensureLast) { [weak self] in
-                guard let self else { return }
-                self.layoutViewport()
+        layoutViewport()
 
-                if needsScrollToSelection, let textRange = textLayoutManager.textSelections.last?.textRanges.last {
-                    scrollToVisible(textRange, type: .standard)
-                }
-
-                needsScrollToSelection = false
-            }
-        } else {
-            layoutViewport()
-
-            if needsScrollToSelection, let textRange = textLayoutManager.textSelections.last?.textRanges.last {
-                scrollToVisible(textRange, type: .standard)
-            }
-
-            needsScrollToSelection = false
+        if needsScrollToSelection, let textRange = textLayoutManager.textSelections.last?.textRanges.last {
+            scrollToVisible(textRange, type: .standard)
         }
+
+        needsScrollToSelection = false
     }
 
     /// Resizes the receiver to fit its text.
     open func sizeToFit() {
+        let gutterWidth = gutterView?.frame.width ?? 0
+        let verticalScrollInset = scrollView?.contentInsets.verticalInsets ?? 0
+        
+        // For wrapped text, we need to configure container size BEFORE layout calculations
+        if !isHorizontallyResizable {
+            // Pre-configure text container width for wrapping mode
+            let proposedContentWidth = visibleRect.width - gutterWidth
+            if !textContainer.size.width.isAlmostEqual(to: proposedContentWidth) {
+                var containerSize = textContainer.size
+                containerSize.width = proposedContentWidth
+                textContainer.size = containerSize
+                logger.debug("Pre-configured textContainer.size.width \(proposedContentWidth) for wrapping \(#function)")
+            }
+        }
+        
+        // Now perform layout with correct container size
         // Estimate `usageBoundsForTextContainer` size is based on performed layout.
         // If layout didn't happen for the whole document, it only cover
         // the fragment that is known. And even after ensureLayout for the whole document
@@ -1290,8 +1300,6 @@ import AVFoundation
         let usageBoundsForTextContainer = textLayoutManager.usageBoundsForTextContainer
         logger.debug("usageBoundsForTextContainer \(usageBoundsForTextContainer.debugDescription) \(#function)")
 
-        let gutterWidth = gutterView?.frame.width ?? 0
-        let verticalScrollInset = scrollView?.contentInsets.verticalInsets ?? 0
         let frameSize: CGSize
         if isHorizontallyResizable {
             // no-wrapping
@@ -1324,6 +1332,7 @@ import AVFoundation
             selectionView.frame = contentFrame
         }
         
+        // Final container size configuration (handles vertical resizing and any adjustments)
         _configureTextContainerSize()
     }
 
