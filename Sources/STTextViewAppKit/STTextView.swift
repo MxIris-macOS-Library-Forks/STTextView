@@ -8,7 +8,7 @@
 //                  |---(STLineHighlightView | SelectionHighlightView)
 //          |---contentView
 //                  |---(STInsertionPointView | STTextLayoutFragmentView)
-//      |---gutterView
+//          |---gutterView
 //
 //
 // The default implementation of the NSView method inputContext manages
@@ -933,11 +933,25 @@ import AVFoundation
     }
 
     open override func prepareContent(in rect: NSRect) {
+        let oldPreparedContentRect = preparedContentRect
+        let overdraw: CGFloat = visibleRect.height / 2
+        let granularity: CGFloat = visibleRect.height / 4
+
         var prepareRect = rect
-        prepareRect.origin.y = max(0, prepareRect.origin.y + (visibleRect.height * 2))
-        prepareRect.size.height += visibleRect.height
+        // Round to granularity boundary to reduce overdraw changes
+        let roundedY = floor(rect.origin.y / granularity) * granularity
+        let roundedX = floor(rect.origin.x / granularity) * granularity
+        
+        prepareRect.origin.y = ceil(max(0, roundedY - overdraw))
+        prepareRect.origin.x = ceil(max(0, roundedX - overdraw))
+        prepareRect.size.height = ceil((rect.maxY - prepareRect.origin.y) + overdraw)
+        prepareRect.size.width = ceil((rect.maxX - prepareRect.origin.x) + overdraw)
+
         super.prepareContent(in: prepareRect)
-        layoutViewport()
+
+        if oldPreparedContentRect != prepareRect {
+            layoutViewport()
+        }
     }
 
     /// The current selection range of the text view.
@@ -982,8 +996,6 @@ import AVFoundation
             (textContentManager as? NSTextContentStorage)?.textStorage?.addAttributes(attrs, range: range)
         }
 
-        updateTypingAttributes()
-
         if updateLayout {
             needsLayout = true
         }
@@ -994,8 +1006,6 @@ import AVFoundation
         textContentManager.performEditingTransaction {
             (textContentManager as? NSTextContentStorage)?.textStorage?.addAttributes(attrs, range: NSRange(range, in: textContentManager))
         }
-
-        updateTypingAttributes()
 
         if updateLayout {
             needsLayout = true
@@ -1022,8 +1032,6 @@ import AVFoundation
             (textContentManager as? NSTextContentStorage)?.textStorage?.setAttributes(attrs, range: NSRange(range, in: textContentManager))
         }
 
-        updateTypingAttributes()
-
         if updateLayout {
             needsLayout = true
         }
@@ -1049,8 +1057,6 @@ import AVFoundation
         textContentManager.performEditingTransaction {
             (textContentManager as? NSTextContentStorage)?.textStorage?.removeAttribute(attribute, range: NSRange(range, in: textContentManager))
         }
-
-        updateTypingAttributes()
 
         if updateLayout {
             needsLayout = true
@@ -1238,7 +1244,6 @@ import AVFoundation
     }
 
     @objc internal func enclosingClipViewBoundsDidChange(_ notification: Notification) {
-        layoutGutter()
         cancelComplete(notification.object)
     }
 
