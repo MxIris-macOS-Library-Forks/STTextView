@@ -15,10 +15,7 @@ extension STTextView {
         if !didPerformCompletion {
             _completionTask?.cancel()
             _completionTask = Task(priority: .userInitiated) { [weak self] in
-                guard let self else { return }
-                if Task.isCancelled {
-                    return
-                }
+                guard let self, !Task.isCancelled else { return }
                 let sessionId = UUID().uuidString
                 logger.debug("async completion: \(sessionId)")
                 let result = await performAsyncCompletion()
@@ -34,6 +31,7 @@ extension STTextView {
     @objc open func cancelComplete(_ sender: Any?) {
         _completionTask?.cancel()
         completionWindowController?.close()
+        _completionWindowController = nil
     }
 
     @MainActor
@@ -44,7 +42,6 @@ extension STTextView {
             self.complete(sender)
         }
     }
-
 
     @MainActor @_unavailableFromAsync
     private func performSyncCompletion() -> Bool {
@@ -116,6 +113,10 @@ extension STTextView {
 }
 
 extension STTextView: STCompletionWindowDelegate {
+    public func completionWindowControllerCancel(_ windowController: STCompletionWindowController) {
+        cancelComplete(windowController)
+    }
+    
     public func completionWindowController(_ windowController: STCompletionWindowController, complete item: any STCompletionItem, movement: NSTextMovement) {
         delegateProxy.textView(self, insertCompletionItem: item)
     }

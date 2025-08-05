@@ -364,7 +364,6 @@ import AVFoundation
 
     /// Gutter view
     public var gutterView: STGutterView?
-    internal var scrollViewFrameObserver: NSKeyValueObservation?
 
     /// The highlight color of the selected line.
     ///
@@ -492,14 +491,21 @@ import AVFoundation
     internal let selectionView: STSelectionView
 
     internal var fragmentViewMap: NSMapTable<NSTextLayoutFragment, STTextLayoutFragmentView>
-    private var usageBoundsForTextContainerObserver: NSKeyValueObservation?
+    private var _usageBoundsForTextContainerObserver: NSKeyValueObservation?
 
     internal lazy var speechSynthesizer: AVSpeechSynthesizer = AVSpeechSynthesizer()
 
-    internal lazy var completionWindowController: STCompletionWindowController? = {
-        let viewController = delegateProxy.textViewCompletionViewController(self)
-        return STCompletionWindowController(viewController)
-    }()
+    internal var _completionWindowController: STCompletionWindowController?
+    internal var completionWindowController: STCompletionWindowController? {
+        if _completionWindowController == nil {
+            let completionViewController = delegateProxy.textViewCompletionViewController(self)
+            let completionWindowController = STCompletionWindowController(completionViewController)
+            _completionWindowController = completionWindowController
+            return completionWindowController
+        }
+
+        return _completionWindowController
+    }
 
     /// Completion window is presented currently
     open var isCompletionActive: Bool {
@@ -737,8 +743,8 @@ import AVFoundation
             // textCheckingController.didChangeSelectedRange()
         }
 
-        usageBoundsForTextContainerObserver = nil
-        usageBoundsForTextContainerObserver = textLayoutManager.observe(\.usageBoundsForTextContainer, options: [.initial, .new]) { [weak self] _, _ in
+        _usageBoundsForTextContainerObserver = nil
+        _usageBoundsForTextContainerObserver = textLayoutManager.observe(\.usageBoundsForTextContainer, options: [.initial, .new]) { [weak self] _, _ in
             // FB13291926: this notification no longer works
             self?.needsUpdateConstraints = true
         }
@@ -985,18 +991,22 @@ import AVFoundation
         }
     }
 
-    /// Add attribute. Need `needsViewportLayout = true` to reflect changes.
+    /// Add attribute.
     open func addAttributes(_ attrs: [NSAttributedString.Key: Any], range: NSRange) {
         addAttributes(attrs, range: range, updateLayout: true)
     }
 
-    /// Add attribute. Need `needsViewportLayout = true` to reflect changes.
+    /// Add attribute.
     private func addAttributes(_ attrs: [NSAttributedString.Key: Any], range: NSRange, updateLayout: Bool) {
         if let textContentStorage = textContentManager as? NSTextContentStorage,
-           let textStorage = textContentStorage.attributedString as? NSTextStorage
+           let textStorage = textContentStorage.textStorage
         {
-            textContentManager.performEditingTransaction {
+            if !textContentManager.hasEditingTransaction {
                 textStorage.addAttributes(attrs, range: range)
+            } else {
+                textContentManager.performEditingTransaction {
+                    textStorage.addAttributes(attrs, range: range)
+                }
             }
         }
 
@@ -1005,7 +1015,7 @@ import AVFoundation
         }
     }
 
-    /// Add attribute. Need `needsViewportLayout = true` to reflect changes.
+    /// Add attribute.
     internal func addAttributes(_ attrs: [NSAttributedString.Key: Any], range: NSTextRange, updateLayout: Bool = true) {
         textContentManager.performEditingTransaction {
             (textContentManager as? NSTextContentStorage)?.textStorage?.addAttributes(attrs, range: NSRange(range, in: textContentManager))
@@ -1029,7 +1039,7 @@ import AVFoundation
         setAttributes(attrs, range: textRange, updateLayout: updateLayout)
     }
 
-    /// Set attributes. Need `needsViewportLayout = true` to reflect changes.
+    /// Set attributes.
     internal func setAttributes(_ attrs: [NSAttributedString.Key: Any], range: NSTextRange, updateLayout: Bool = true) {
 
         textContentManager.performEditingTransaction {
@@ -1041,12 +1051,12 @@ import AVFoundation
         }
     }
 
-    /// Set attributes. Need `needsViewportLayout = true` to reflect changes.
+    /// Set attributes.
     open func removeAttribute(_ attribute: NSAttributedString.Key, range: NSRange) {
         removeAttribute(attribute, range: range, updateLayout: true)
     }
 
-    /// Set attributes. Need `needsViewportLayout = true` to reflect changes.
+    /// Set attributes.
     internal func removeAttribute(_ attribute: NSAttributedString.Key, range: NSRange, updateLayout: Bool) {
         guard let textRange = NSTextRange(range, in: textContentManager) else {
             preconditionFailure("Invalid range \(range)")
@@ -1055,7 +1065,7 @@ import AVFoundation
         removeAttribute(attribute, range: textRange, updateLayout: updateLayout)
     }
 
-    /// Set attributes. Need `needsViewportLayout = true` to reflect changes.
+    /// Set attributes.
     internal func removeAttribute(_ attribute: NSAttributedString.Key, range: NSTextRange, updateLayout: Bool = true) {
 
         textContentManager.performEditingTransaction {
@@ -1553,6 +1563,12 @@ private extension NSViewInvalidating where Self == STTextView.Invalidations.Curs
     }
 }
 
+private extension NSViewInvalidating where Self == STTextView.Invalidations.LayoutViewport {
+    static var layoutViewport: STTextView.Invalidations.LayoutViewport {
+        STTextView.Invalidations.LayoutViewport()
+    }
+}
+
 private extension STTextView.Invalidations {
 
     struct InsertionPoint: NSViewInvalidating {
@@ -1570,6 +1586,17 @@ private extension STTextView.Invalidations {
 
         func invalidate(view: NSView) {
             view.window?.invalidateCursorRects(for: view)
+        }
+    }
+
+    struct LayoutViewport: NSViewInvalidating {
+
+        func invalidate(view: NSView) {
+            guard let textView = view as? STTextView else {
+                return
+            }
+
+            textView.layoutViewport()
         }
     }
 
