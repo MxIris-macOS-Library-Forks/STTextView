@@ -7,7 +7,9 @@
 //          |---selectionView
 //                  |---(STLineHighlightView | SelectionHighlightView)
 //          |---contentView
-//                  |---(STInsertionPointView | STTextLayoutFragmentView)
+//                  |---STInsertionPointView
+//          |---contentViewportView
+//                  |---STTextLayoutFragmentView
 //          |---gutterView
 //
 //
@@ -401,6 +403,9 @@ import AVFoundation
     internal var _undoManager: UndoManager?
     internal var _yankingManager = YankingManager()
 
+    /// Whether layout is in progress
+    internal var _isLayoutViewport = false
+
     internal var markedText: STMarkedText? = nil
 
     /// The attributes used to draw marked text.
@@ -481,6 +486,7 @@ import AVFoundation
 
     /// Content view. Layout fragments content.
     internal let contentView: STContentView
+    internal let contentViewportView: STContentViewportView
 
     /// Content frame. Layout fragments content frame.
     public var contentFrame: CGRect {
@@ -653,6 +659,8 @@ import AVFoundation
         textContentManager.primaryTextLayoutManager = textLayoutManager
 
         contentView = STContentView()
+        contentViewportView = STContentViewportView()
+
         selectionView = STSelectionView()
 
         allowsUndo = true
@@ -681,6 +689,7 @@ import AVFoundation
 
         addSubview(selectionView)
         addSubview(contentView)
+        addSubview(contentViewportView)
 
         do {
             let recognizer = DragSelectedTextGestureRecognizer(target: self, action: #selector(_dragSelectedTextGestureRecognizer(gestureRecognizer:)))
@@ -814,12 +823,8 @@ import AVFoundation
         super.viewDidMoveToSuperview()
 
         if let scrollView {
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(enclosingClipViewBoundsDidChange(_:)),
-                name: NSClipView.boundsDidChangeNotification,
-                object: scrollView.contentView
-            )
+            NotificationCenter.default.addObserver(self, selector: #selector(didLiveScrollNotification(_:)), name: NSScrollView.didLiveScrollNotification, object: scrollView)
+            NotificationCenter.default.addObserver(self, selector: #selector(didEndLiveScrollNotification(_:)), name: NSScrollView.didEndLiveScrollNotification, object: scrollView)
         }
     }
 
@@ -840,7 +845,7 @@ import AVFoundation
         // and ignore utility subviews that should remain transparent
         // for interaction.
         if let view = result, view != self,
-           (view.isDescendant(of: contentView) || view.isDescendant(of: selectionView))
+           (view.isDescendant(of: contentView) || view.isDescendant(of: contentViewportView) || view.isDescendant(of: selectionView))
         {
             // Check if this is an attachment view - allow it to handle its own events
             if isTextAttachmentView(view) {
@@ -991,6 +996,22 @@ import AVFoundation
         }
     }
 
+    /// Sets the rendering attribute for the value and range you specify.
+    ///
+    /// Rendering attributes are used only for onscreen drawing and are not persistent in any way.
+    /// Currently the only rendering attributes recognized are those that do not affect layout (colors, underlines, and so on).
+    open func addRenderingAttributes(_ attrs: [NSAttributedString.Key: Any], range: NSRange) {
+        guard let textRange = NSTextRange(range, in: textContentManager) else {
+            return
+        }
+
+        for attr in attrs {
+            textLayoutManager.addRenderingAttribute(attr.key, value: attr.value, for: textRange)
+        }
+
+        needsLayout = true
+    }
+
     /// Add attribute.
     open func addAttributes(_ attrs: [NSAttributedString.Key: Any], range: NSRange) {
         addAttributes(attrs, range: range, updateLayout: true)
@@ -1001,7 +1022,7 @@ import AVFoundation
         if let textContentStorage = textContentManager as? NSTextContentStorage,
            let textStorage = textContentStorage.textStorage
         {
-            if !textContentManager.hasEditingTransaction {
+            if textContentManager.hasEditingTransaction {
                 textStorage.addAttributes(attrs, range: range)
             } else {
                 textContentManager.performEditingTransaction {
@@ -1051,12 +1072,23 @@ import AVFoundation
         }
     }
 
-    /// Set attributes.
+    /// Remove rendering attribute.
+    open func removeRenderingAttribute(_ attribute: NSAttributedString.Key, range: NSRange) {
+        guard let textRange = NSTextRange(range, in: textContentManager) else {
+            return
+        }
+
+        textLayoutManager.removeRenderingAttribute(attribute, for: textRange)
+
+        needsLayout = true
+    }
+
+    /// Remove attributes.
     open func removeAttribute(_ attribute: NSAttributedString.Key, range: NSRange) {
         removeAttribute(attribute, range: range, updateLayout: true)
     }
 
-    /// Set attributes.
+    /// Remove attributes.
     internal func removeAttribute(_ attribute: NSAttributedString.Key, range: NSRange, updateLayout: Bool) {
         guard let textRange = NSTextRange(range, in: textContentManager) else {
             preconditionFailure("Invalid range \(range)")
@@ -1065,7 +1097,7 @@ import AVFoundation
         removeAttribute(attribute, range: textRange, updateLayout: updateLayout)
     }
 
-    /// Set attributes.
+    /// Remove attributes.
     internal func removeAttribute(_ attribute: NSAttributedString.Key, range: NSTextRange, updateLayout: Bool = true) {
 
         textContentManager.performEditingTransaction {
@@ -1203,13 +1235,13 @@ import AVFoundation
         guard !textLayoutManager.textSelections.isEmpty,
             let viewportRange = textLayoutManager.textViewportLayoutController.viewportRange
         else {
-            selectionView.subviews.removeAll()
+            selectionView.subviews = []
             // don't highlight when there's selection
             return
         }
 
         if !selectionView.subviews.isEmpty {
-            selectionView.subviews.removeAll()
+            selectionView.subviews = []
         }
 
         for textRange in textLayoutManager.textSelections.flatMap(\.textRanges).sorted(by: { $0.location < $1.location }).compactMap({ $0.clamped(to: viewportRange) }) {
@@ -1257,8 +1289,16 @@ import AVFoundation
         }
     }
 
-    @objc internal func enclosingClipViewBoundsDidChange(_ notification: Notification) {
+    @objc internal func didLiveScrollNotification(_ notification: Notification) {
         cancelComplete(notification.object)
+        // TODO: throttle.
+        // Need to adjust/layout viewport as scroll, but also doing that while scrolling is too much
+        // the prepareContent layout pass should be enough. Unless contentView resize as part of viewportLayout, then it need to re-layout for that
+        layoutViewport()
+    }
+
+    @objc internal func didEndLiveScrollNotification(_ notification: Notification) {
+        layoutViewport()
     }
 
     open override func viewDidEndLiveResize() {
@@ -1334,14 +1374,14 @@ import AVFoundation
         }
 
         if !frame.size.isAlmostEqual(to: frameSize) {
-            self.setFrameSize(frameSize)
+            self.setFrameSize(frameSize) // layout()
         }
 
         let contentFrame = CGRect(
             x: gutterWidth,
             y: frame.origin.y,
-            width: frame.width - gutterWidth,
-            height: frame.height
+            width: frameSize.width - gutterWidth,
+            height: frameSize.height
         )
 
         if !contentFrame.isAlmostEqual(to: contentView.frame) {
@@ -1358,6 +1398,10 @@ import AVFoundation
         // for far jump it tries to layout everything starting at location 0
         // even though viewport range is properly calculated.
         // No known workaround.
+        if _isLayoutViewport {
+            return
+        }
+        
         textLayoutManager.textViewportLayoutController.layoutViewport()
     }
 
